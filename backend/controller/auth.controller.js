@@ -5,9 +5,12 @@ import { User } from "../models/user.model.js";
 import { generateVerificationCode } from "../utils/generateVerificationCode.js";
 import { generateTokenAndSetCookie } from "../utils/generateTokenAndSetCookie.js";
 import {
+  sendPasswordResetEmail,
+  sendPasswordResetSuccessEmail,
   sendVerificationEmail,
   sendWelcomeEmail,
 } from "../services/email.service.js";
+import crypto from "crypto";
 
 const signup = asyncHandler(async (req, res) => {
   const { email, password, name } = req.body;
@@ -84,11 +87,6 @@ const verifyEmail = asyncHandler(async (req, res) => {
   }
 });
 
-const logout = asyncHandler(async (req, res) => {
-  res.clearCookie("token");
-  res.status(200).json(new ApiResponse(200, "Looged out successfully"));
-});
-
 const login = asyncHandler(async (req, res) => {
   let { email = "", password = "" } = req.body;
   email = email.trim().toLowerCase();
@@ -115,4 +113,96 @@ const login = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, user, "User logged in successfully"));
 });
-export { signup, verifyEmail, logout, login };
+const logout = asyncHandler(async (req, res) => {
+  res.clearCookie("token");
+  res.status(200).json(new ApiResponse(200, "Looged out successfully"));
+});
+
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      throw new ApiError(400, "User not found");
+    }
+
+    // generate token
+    const resetToken = crypto.randomBytes(20).toString("hex");
+    const resetTokenExpiresAt = Date.now() + 1 * 60 * 60 * 1000;
+
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpiresAt = resetTokenExpiresAt;
+
+    await user.save();
+
+    // send email
+    await sendPasswordResetEmail(
+      user.email,
+      user.name,
+      `${process.env.CLIENT_URL}/reset-password/${resetToken}`
+    );
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "", "Password reset link sent to your email"));
+  } catch (error) {
+    throw new ApiError(400, "Error while forgoting password");
+  }
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpiresAt: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      throw new ApiError(400, "Invalid or expires reset token");
+    }
+
+    // update password
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpiresAt = undefined;
+    await user.save();
+
+    // send success email
+    await sendPasswordResetSuccessEmail(user.email, user.name);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "", "Password reset Successfully"));
+  } catch (error) {
+    throw new ApiError(400, "Error while reseting password", error);
+  }
+});
+
+const checkAuth = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  try {
+    const user = await User.findById(userId).select("-password");
+    if (!user) {
+      throw new ApiError(400, "User not found");
+    }
+
+    res.status(200).json(new ApiResponse(200, user, "User authorized"));
+  } catch (error) {
+    throw new ApiError(400, "User is not authorized", error?.message);
+  }
+});
+
+export {
+  signup,
+  verifyEmail,
+  logout,
+  login,
+  forgotPassword,
+  resetPassword,
+  checkAuth,
+};
