@@ -18,7 +18,7 @@ router.route("/verify-email").post(verifyEmail);
 
 router.route("/login").post(login);
 
-router.route("/logout").get(logout);
+router.route("/logout").post(logout);
 
 router.route("/forgot-password").post(forgotPassword);
 
