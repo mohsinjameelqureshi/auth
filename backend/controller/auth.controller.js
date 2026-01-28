@@ -17,6 +17,9 @@ const signup = asyncHandler(async (req, res) => {
   if ([email, password, name].some((field) => !field || field.trim() === "")) {
     throw new ApiError(400, "All fields are required");
   }
+  if (password.length < 8) {
+    throw new ApiError(400, "Password must be at least 8 characters long");
+  }
   const userAlreadyExist = await User.findOne({ email });
 
   if (userAlreadyExist) {
